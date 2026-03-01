@@ -1,0 +1,251 @@
+/* oci_tui.tcss — OCI TUI stylesheet */
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
+
+Screen {
+    layers: base overlay;
+    background: $surface;
+}
+
+#toolbar {
+    height: 3;
+    background: $surface-darken-1;
+    border-bottom: solid $primary;
+    align: left middle;
+    padding: 0 2;
+}
+
+.toolbar-label {
+    color: $text-muted;
+    margin-right: 1;
+}
+
+#comp-name {
+    color: $accent;
+    text-style: bold;
+    margin-right: 3;
+}
+
+#status-label {
+    color: $warning;
+}
+
+#main {
+    height: 1fr;
+    layout: vertical;
+}
+
+#instance-table {
+    height: 1fr;
+    min-height: 8;
+}
+
+#detail-panel {
+    height: 5;
+    background: $surface-darken-2;
+    border-top: solid $primary;
+    padding: 1 2;
+}
+
+#detail-content {
+    width: 100%;
+}
+
+/* ── Modals ──────────────────────────────────────────────────────────────── */
+
+ModalScreen {
+    align: center middle;
+    background: $background 60%;
+}
+
+#modal-container {
+    background: $surface;
+    border: solid $primary;
+    padding: 1 2;
+    width: 60;
+    max-height: 80vh;
+}
+
+.wide-modal #modal-container {
+    width: 80;
+}
+
+.launch-modal #modal-container {
+    width: 72;
+    height: 42;
+}
+
+#modal-title {
+    text-style: bold;
+    color: $accent;
+    width: 100%;
+    text-align: center;
+    padding-bottom: 1;
+}
+
+#modal-message {
+    margin: 1 0;
+    width: 100%;
+}
+
+#copy-input {
+    width: 100%;
+    margin: 1 0;
+}
+
+#modal-buttons {
+    margin-top: 1;
+    height: 3;
+    align: right middle;
+}
+
+#modal-buttons Button {
+    margin-left: 1;
+}
+
+/* ── Instance detail screen ───────────────────────────────────────────────── */
+
+#inst-header {
+    height: 3;
+    background: $surface-darken-1;
+    border-bottom: solid $primary;
+    padding: 0 2;
+    content-align: left middle;
+}
+
+#detail-tabs {
+    height: 1fr;
+}
+
+#details-scroll,
+#net-scroll,
+#storage-scroll,
+#console-scroll {
+    padding: 1 2;
+}
+
+#vnic-table {
+    height: 10;
+    border-top: solid $surface-lighten-1;
+    margin-top: 1;
+}
+
+#sec-vnic-title {
+    margin-top: 1;
+}
+
+
+#vnic-detail-header {
+    height: 3;
+    background: $surface-darken-1;
+    border-bottom: solid $primary;
+    padding: 0 2;
+    content-align: left middle;
+}
+
+#vnic-tabs {
+    height: 1fr;
+}
+
+#vnic-info-scroll {
+    padding: 1 2;
+}
+
+#vnic-ip-table {
+    height: 1fr;
+}
+
+.form-scroll {
+    height: 1fr;
+    border: solid $surface-lighten-1;
+    padding: 0 1;
+}
+
+.field-label {
+    color: $text-muted;
+    margin-top: 1;
+    height: 1;
+}
+
+
+.form-scroll Input,
+.form-scroll Select {
+    width: 100%;
+    margin-bottom: 0;
+}
+
+.shape-config {
+    layout: horizontal;
+    height: auto;
+}
+
+.shape-config .half {
+    width: 1fr;
+    padding-right: 1;
+}
+
+/* ── Main app tabs ─────────────────────────────────────────── */
+#main-tabs {
+    height: 1fr;
+}
+
+/* ── Networking tab ────────────────────────────────────────── */
+#tab-networking-main {
+    height: 1fr;
+}
+
+#net-tabs {
+    height: 1fr;
+}
+
+#tab-net-vnics,
+#tab-net-ips {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#net-vnic-table,
+#net-ip-table {
+    height: 1fr;
+}
+
+/* ── Security Lists sub-tab ────────────────────────────────── */
+#tab-net-seclist {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#seclist-layout {
+    layout: vertical;
+    height: 1fr;
+}
+
+#seclist-table {
+    height: 12;
+    border-bottom: solid $surface-lighten-1;
+}
+
+#seclist-rules-tabs {
+    height: 1fr;
+}
+
+#tab-ingress,
+#tab-egress {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#ingress-table,
+#egress-table {
+    height: 1fr;
+}
+
+/* ── Security rule modal ───────────────────────────────────── */
+SecurityRuleModal .modal-box {
+    width: 60;
+    max-height: 38;
+    padding: 1 2;
+    background: $surface;
+    border: solid $primary;
+    overflow-y: auto;
+}
