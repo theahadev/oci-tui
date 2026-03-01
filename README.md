@@ -16,8 +16,10 @@ A terminal UI for managing Oracle Cloud Infrastructure compute instances, built 
 
 ## Keyboard shortcuts
 
-| Key | Action           |
-|-----|------------------|
+### Main screen
+
+| Key | Action |
+|-----|--------|
 | `c` | Change compartment |
 | `R` | Refresh instance list |
 | `s` | Start selected instance |
@@ -27,6 +29,32 @@ A terminal UI for managing Oracle Cloud Infrastructure compute instances, built 
 | `l` | Launch new instance |
 | `i` | Show full instance details |
 | `q` | Quit |
+
+### Networking tab (main screen)
+
+| Key | Action |
+|-----|--------|
+| `v` | View VNIC detail |
+| `I` | Add ingress rule |
+| `E` | Add egress rule |
+| `J` | Edit selected ingress rule |
+| `K` | Edit selected egress rule |
+| `D` | Delete selected ingress rule |
+| `X` | Delete selected egress rule |
+
+### Instance detail screen
+
+| Key | Action |
+|-----|--------|
+| `1` | Details tab |
+| `2` | Networking tab |
+| `3` | Storage tab |
+| `4` | Console tab |
+| `a` | Add VNIC |
+| `e` | Edit selected VNIC |
+| `d` | Detach selected VNIC |
+| `v` | View VNIC detail |
+| `Escape` / `q` | Back |
 
 ## Setup
 
