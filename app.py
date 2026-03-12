@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from ipaddress import ip_address
 from typing import Dict, Optional, Tuple
 
 from rich.text import Text
@@ -15,13 +16,14 @@ from textual.widgets import (
     Footer,
     Header,
     Label,
+    Select,
     Static,
     TabbedContent,
     TabPane,
 )
 
 from common import STATE_STYLE, _short_ad, _expand_port_range
-from modals import CompartmentModal, ConfirmModal, SecurityRuleModal
+from modals import CompartmentModal, ConfirmModal, PublicIpNameModal, SecurityRuleModal
 from launch_modal import LaunchModal
 from instance_detail import InstanceDetailScreen
 from vnic_detail import VnicDetailScreen
@@ -34,6 +36,15 @@ class OCIApp(App):
 
     TITLE = "OCI TUI"
     CSS_PATH = "oci_tui.tcss"
+    RESERVED_PUBLIC_IP_REFRESH_SECONDS = 10
+    RESERVED_PUBLIC_IP_SORT_OPTIONS = [
+        ("Created ↓", "created_desc"),
+        ("Created ↑", "created_asc"),
+        ("IP Address ↑", "ip_asc"),
+        ("IP Address ↓", "ip_desc"),
+        ("Name ↑", "name_asc"),
+        ("Name ↓", "name_desc"),
+    ]
 
     BINDINGS = [
         Binding("c",     "change_compartment",    "Compartment"),
@@ -52,6 +63,9 @@ class OCIApp(App):
         Binding("K",     "seclist_edit_egress",    "Edit Egress Rule",  show=False),
         Binding("D",     "seclist_del_ingress",    "Del Ingress Rule",  show=False),
         Binding("X",     "seclist_del_egress",     "Del Egress Rule",   show=False),
+        Binding("n",     "reserve_public_ip",      "Reserve Public IP", show=False),
+        Binding("e",     "edit_reserved_public_ip","Edit Reserved IP",  show=False),
+        Binding("delete","delete_reserved_public_ip","Delete Reserved IP", show=False),
     ]
 
     def __init__(self) -> None:
@@ -66,6 +80,9 @@ class OCIApp(App):
         self._col_priv_ip = None
         # Networking tab state
         self._net_vnics_cache: list = []  # cached {vnic, attachment, subnet_name} dicts
+        self._reserved_public_ips: list = []
+        self._reserved_public_ip_selected_id: Optional[str] = None
+        self._reserved_public_ip_sort: str = "created_desc"
         self._sec_lists: list = []        # cached security list objects
         self._sec_list_map: dict = {}     # id → security list
         self._cur_sec_list = None         # currently selected security list
@@ -94,6 +111,24 @@ class OCIApp(App):
                         yield DataTable(id="net-vnic-table", cursor_type="row", zebra_stripes=True)
                     with TabPane("IP Administration", id="tab-net-ips"):
                         yield DataTable(id="net-ip-table", cursor_type="row", zebra_stripes=True)
+                    with TabPane("Reserved Public IPs", id="tab-net-reserved-ips"):
+                        with Vertical(id="reserved-public-ip-layout"):
+                            with Horizontal(id="reserved-public-ip-toolbar"):
+                                yield Label("Order By", id="reserved-public-ip-sort-label")
+                                yield Select(
+                                    self.RESERVED_PUBLIC_IP_SORT_OPTIONS,
+                                    value=self._reserved_public_ip_sort,
+                                    id="reserved-public-ip-sort",
+                                )
+                                yield Static(
+                                    f"Auto-refreshes every {self.RESERVED_PUBLIC_IP_REFRESH_SECONDS}s · Keys: n / e / Delete",
+                                    id="reserved-public-ip-hint",
+                                )
+                            yield DataTable(
+                                id="net-reserved-public-ip-table",
+                                cursor_type="row",
+                                zebra_stripes=True,
+                            )
                     with TabPane("Security Lists", id="tab-net-seclist"):
                         with Vertical(id="seclist-layout"):
                             yield DataTable(id="seclist-table", cursor_type="row", zebra_stripes=True)
@@ -119,6 +154,10 @@ class OCIApp(App):
         it = self.query_one("#net-ip-table", DataTable)
         it.add_columns("Private IP", "Public IP", "Lifetime", "Instance", "Subnet", "Assigned")
 
+        # Reserved public IPs table
+        rpt = self.query_one("#net-reserved-public-ip-table", DataTable)
+        rpt.add_columns("Name", "IP Address", "Attachment Status", "Reservation Date")
+
         # Security list tables
         st = self.query_one("#seclist-table", DataTable)
         st.add_columns("Name", "State", "VCN", "Ingress Rules", "Egress Rules")
@@ -129,6 +168,7 @@ class OCIApp(App):
         eg = self.query_one("#egress-table", DataTable)
         eg.add_columns("Stateless", "Destination", "Protocol", "Src Port", "Dst Port", "ICMP", "Description")
 
+        self.set_interval(self.RESERVED_PUBLIC_IP_REFRESH_SECONDS, self._load_reserved_public_ips)
         self._init_oci()
 
     # ── OCI init / loading ────────────────────────────────────────────────────
@@ -159,6 +199,7 @@ class OCIApp(App):
         self._load_instances()
         self._load_net_vnics()
         self._load_net_ips()
+        self._load_reserved_public_ips()
         self._load_sec_lists()
 
     @work(thread=True, name="load_instances")
@@ -283,6 +324,7 @@ class OCIApp(App):
         self._load_instances()
         self._load_net_vnics()
         self._load_net_ips()
+        self._load_reserved_public_ips()
         self._load_sec_lists()
 
     def action_details(self) -> None:
@@ -521,6 +563,243 @@ class OCIApp(App):
                 _fmt_dt(pip.time_created),
                 key=pip.id,
             )
+
+    @work(thread=True, name="load_reserved_public_ips")
+    def _load_reserved_public_ips(self) -> None:
+        if not self._manager or not self._compartment_id:
+            return
+        try:
+            reserved_ips = self._manager.list_reserved_public_ips(self._compartment_id)
+            self.call_from_thread(self._populate_reserved_public_ips, reserved_ips)
+        except Exception as exc:
+            self.call_from_thread(self.notify, f"Reserved public IP load error: {exc}", severity="error")
+
+    def _reserved_ip_attachment_status(self, entry: dict) -> str:
+        public_ip = entry["public_ip"]
+        private_ip = entry["private_ip"]
+        if public_ip.assigned_entity_type == "PRIVATE_IP":
+            if private_ip and getattr(private_ip, "ip_address", None):
+                return f"Assigned to {private_ip.ip_address}"
+            return "Assigned to private IP"
+        if public_ip.assigned_entity_type == "NAT_GATEWAY":
+            return "Assigned to NAT gateway"
+        if public_ip.lifecycle_state in ("ASSIGNING", "UNASSIGNING"):
+            return "Updating assignment…"
+        return "Unassigned"
+
+    def _sort_reserved_public_ips(self, reserved_ips: list) -> list:
+        reverse = self._reserved_public_ip_sort.endswith("_desc")
+        field = self._reserved_public_ip_sort.rsplit("_", 1)[0]
+
+        def _name(entry: dict) -> str:
+            return (entry["public_ip"].display_name or "").casefold()
+
+        def _created(entry: dict):
+            return entry["public_ip"].time_created or 0
+
+        def _ip(entry: dict):
+            addr = entry["public_ip"].ip_address
+            if not addr:
+                return (1, "")
+            try:
+                return (0, ip_address(addr))
+            except ValueError:
+                return (0, addr)
+
+        key_map = {
+            "created": _created,
+            "ip": _ip,
+            "name": _name,
+        }
+        return sorted(reserved_ips, key=key_map[field], reverse=reverse)
+
+    def _populate_reserved_public_ips(self, reserved_ips: list) -> None:
+        def _fmt_dt(dt) -> str:
+            return dt.strftime("%Y-%m-%d %H:%M") if dt else "—"
+
+        tbl = self.query_one("#net-reserved-public-ip-table", DataTable)
+        selected_id = self._reserved_public_ip_selected_id
+        try:
+            row_key = tbl.coordinate_to_cell_key(tbl.cursor_coordinate).row_key
+            if row_key and row_key.value:
+                selected_id = row_key.value
+        except Exception:
+            pass
+
+        self._reserved_public_ips = self._sort_reserved_public_ips(reserved_ips)
+        tbl.clear()
+        for entry in self._reserved_public_ips:
+            public_ip = entry["public_ip"]
+            tbl.add_row(
+                public_ip.display_name or "—",
+                public_ip.ip_address or "—",
+                self._reserved_ip_attachment_status(entry),
+                _fmt_dt(public_ip.time_created),
+                key=public_ip.id,
+            )
+        self._restore_reserved_public_ip_selection(selected_id)
+
+    def _restore_reserved_public_ip_selection(self, public_ip_id: Optional[str]) -> None:
+        if not self._reserved_public_ips:
+            self._reserved_public_ip_selected_id = None
+            return
+
+        row_index = 0
+        selected_id = public_ip_id
+        if selected_id:
+            for idx, entry in enumerate(self._reserved_public_ips):
+                if entry["public_ip"].id == selected_id:
+                    row_index = idx
+                    break
+            else:
+                selected_id = None
+
+        if selected_id is None:
+            selected_id = self._reserved_public_ips[0]["public_ip"].id
+
+        self._reserved_public_ip_selected_id = selected_id
+        try:
+            self.query_one("#net-reserved-public-ip-table", DataTable).move_cursor(row=row_index, column=0)
+        except Exception:
+            pass
+
+    def _reserved_public_ip_tab_active(self) -> bool:
+        try:
+            return self.query_one("#net-tabs", TabbedContent).active == "tab-net-reserved-ips"
+        except Exception:
+            return False
+
+    def _selected_reserved_public_ip(self):
+        try:
+            tbl = self.query_one("#net-reserved-public-ip-table", DataTable)
+            public_ip_id = tbl.coordinate_to_cell_key(tbl.cursor_coordinate).row_key.value
+        except Exception:
+            self.notify("Select a reserved public IP first", severity="warning")
+            return None
+        entry = next(
+            (item for item in self._reserved_public_ips if item["public_ip"].id == public_ip_id),
+            None,
+        )
+        if not entry:
+            self.notify("Reserved public IP not found in cache — try again", severity="warning")
+            return None
+        self._reserved_public_ip_selected_id = public_ip_id
+        return entry
+
+    def action_reserve_public_ip(self) -> None:
+        if not self._reserved_public_ip_tab_active():
+            self.notify("Open Networking > Reserved Public IPs first", severity="warning")
+            return
+        if not self._manager or not self._compartment_id:
+            self.notify("OCI not initialized yet", severity="warning")
+            return
+
+        def on_dismiss(name: Optional[str]) -> None:
+            if name is not None:
+                self._do_create_reserved_public_ip(name)
+
+        self.push_screen(
+            PublicIpNameModal("Reserve New Public IP", "Reserve"),
+            on_dismiss,
+        )
+
+    @work(thread=True, name="create_reserved_public_ip")
+    def _do_create_reserved_public_ip(self, display_name: str) -> None:
+        self.call_from_thread(self.notify, "Reserving public IP…", timeout=4)
+        try:
+            created = self._manager.create_reserved_public_ip(self._compartment_id, display_name)
+            self._reserved_public_ip_selected_id = created.id
+            self.call_from_thread(self.notify, "Reserved public IP created ✓", severity="information")
+            time.sleep(2)
+            self._load_reserved_public_ips()
+        except Exception as exc:
+            self.call_from_thread(self.notify, f"Reserve public IP error: {exc}", severity="error")
+
+    def action_edit_reserved_public_ip(self) -> None:
+        if not self._reserved_public_ip_tab_active():
+            self.notify("Open Networking > Reserved Public IPs first", severity="warning")
+            return
+        entry = self._selected_reserved_public_ip()
+        if not entry:
+            return
+        public_ip = entry["public_ip"]
+
+        def on_dismiss(name: Optional[str]) -> None:
+            if name is not None:
+                self._do_rename_reserved_public_ip(public_ip.id, name)
+
+        self.push_screen(
+            PublicIpNameModal(
+                "Edit Public IP Name",
+                "Save",
+                initial_value=public_ip.display_name or "",
+            ),
+            on_dismiss,
+        )
+
+    @work(thread=True, name="rename_reserved_public_ip")
+    def _do_rename_reserved_public_ip(self, public_ip_id: str, display_name: str) -> None:
+        self.call_from_thread(self.notify, "Updating public IP name…", timeout=4)
+        try:
+            self._manager.update_public_ip_name(public_ip_id, display_name)
+            self._reserved_public_ip_selected_id = public_ip_id
+            self.call_from_thread(self.notify, "Reserved public IP updated ✓", severity="information")
+            time.sleep(1)
+            self._load_reserved_public_ips()
+        except Exception as exc:
+            self.call_from_thread(self.notify, f"Update public IP error: {exc}", severity="error")
+
+    def action_delete_reserved_public_ip(self) -> None:
+        if not self._reserved_public_ip_tab_active():
+            self.notify("Open Networking > Reserved Public IPs first", severity="warning")
+            return
+        entry = self._selected_reserved_public_ip()
+        if not entry:
+            return
+        public_ip = entry["public_ip"]
+        label = public_ip.display_name or public_ip.ip_address or public_ip.id[-12:]
+
+        def on_confirm(ok: bool) -> None:
+            if ok:
+                self._do_delete_reserved_public_ip(public_ip.id, label)
+
+        self.push_screen(
+            ConfirmModal(
+                "Delete Reserved Public IP",
+                f"Delete [b]{label}[/b] ({public_ip.ip_address or 'pending address'})?",
+                "Delete",
+            ),
+            on_confirm,
+        )
+
+    @work(thread=True, name="delete_reserved_public_ip")
+    def _do_delete_reserved_public_ip(self, public_ip_id: str, label: str) -> None:
+        self.call_from_thread(self.notify, f"Deleting {label}…", timeout=4)
+        try:
+            remaining_ids = [
+                entry["public_ip"].id
+                for entry in self._reserved_public_ips
+                if entry["public_ip"].id != public_ip_id
+            ]
+            self._reserved_public_ip_selected_id = remaining_ids[0] if remaining_ids else None
+            self._manager.delete_public_ip(public_ip_id)
+            self.call_from_thread(self.notify, "Reserved public IP deleted ✓", severity="information")
+            time.sleep(2)
+            self._load_reserved_public_ips()
+        except Exception as exc:
+            self.call_from_thread(self.notify, f"Delete public IP error: {exc}", severity="error")
+
+    @on(Select.Changed, "#reserved-public-ip-sort")
+    def on_reserved_public_ip_sort_changed(self, event: Select.Changed) -> None:
+        if event.value is Select.BLANK:
+            return
+        self._reserved_public_ip_sort = str(event.value)
+        self._load_reserved_public_ips()
+
+    @on(DataTable.RowHighlighted, "#net-reserved-public-ip-table")
+    def on_reserved_public_ip_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.row_key and event.row_key.value:
+            self._reserved_public_ip_selected_id = event.row_key.value
 
     # ── Security Lists ────────────────────────────────────────────────────────
 

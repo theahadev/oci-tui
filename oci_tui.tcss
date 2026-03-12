@@ -199,14 +199,41 @@ ModalScreen {
 }
 
 #tab-net-vnics,
-#tab-net-ips {
+#tab-net-ips,
+#tab-net-reserved-ips {
     height: 1fr;
     padding: 0 1;
 }
 
 #net-vnic-table,
-#net-ip-table {
+#net-ip-table,
+#net-reserved-public-ip-table {
     height: 1fr;
+}
+
+#reserved-public-ip-layout {
+    layout: vertical;
+    height: 1fr;
+}
+
+#reserved-public-ip-toolbar {
+    height: 3;
+    align: left middle;
+}
+
+#reserved-public-ip-sort-label {
+    color: $text-muted;
+    margin-right: 1;
+}
+
+#reserved-public-ip-sort {
+    width: 18;
+}
+
+#reserved-public-ip-hint {
+    width: 1fr;
+    color: $text-muted;
+    content-align: right middle;
 }
 
 /* ── Security Lists sub-tab ────────────────────────────────── */

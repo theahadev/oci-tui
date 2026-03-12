@@ -110,6 +110,58 @@ class CopyModal(ModalScreen):
         self.dismiss()
 
 
+# ── Modal: Create / rename reserved public IP ──────────────────────────────────
+
+class PublicIpNameModal(ModalScreen):
+    """Prompt for a reserved public IP display name."""
+
+    BINDINGS = [Binding("escape", "dismiss_none", "Cancel")]
+
+    def __init__(
+        self,
+        title: str,
+        submit_label: str,
+        *,
+        initial_value: str = "",
+        placeholder: str = "reserved-public-ip",
+    ) -> None:
+        super().__init__()
+        self._title = title
+        self._submit_label = submit_label
+        self._initial_value = initial_value
+        self._placeholder = placeholder
+
+    def compose(self) -> ComposeResult:
+        with Container(id="modal-container"):
+            yield Label(self._title, id="modal-title")
+            yield Rule()
+            yield Label("Display Name", classes="field-label")
+            yield Input(self._initial_value, placeholder=self._placeholder, id="public-ip-name-input")
+            with Horizontal(id="modal-buttons"):
+                yield Button(self._submit_label, variant="primary", id="btn-public-ip-submit")
+                yield Button("Cancel", variant="default", id="btn-cancel")
+
+    def on_mount(self) -> None:
+        inp = self.query_one("#public-ip-name-input", Input)
+        inp.focus()
+        inp.cursor_position = len(inp.value)
+
+    def action_dismiss_none(self) -> None:
+        self.dismiss(None)
+
+    @on(Button.Pressed, "#btn-public-ip-submit")
+    def do_submit(self) -> None:
+        name = self.query_one("#public-ip-name-input", Input).value.strip()
+        if not name:
+            self.notify("Display name is required", severity="warning")
+            return
+        self.dismiss(name)
+
+    @on(Button.Pressed, "#btn-cancel")
+    def do_cancel(self) -> None:
+        self.dismiss(None)
+
+
 # ── Security Rule Modal ───────────────────────────────────────────────────────
 
 class SecurityRuleModal(ModalScreen):

@@ -7,6 +7,7 @@ from typing import Optional, Tuple
 import oci
 from oci.core.models import (
     AttachVnicDetails,
+    CreatePublicIpDetails,
     CreateVnicDetails,
     EgressSecurityRule,
     GetPublicIpByPrivateIpIdDetails,
@@ -17,6 +18,7 @@ from oci.core.models import (
     PortRange,
     TcpOptions,
     UdpOptions,
+    UpdatePublicIpDetails,
     UpdateSecurityListDetails,
     UpdateVnicDetails,
 )
@@ -444,6 +446,45 @@ class OCIManager:
             except Exception:
                 pass
         return result
+
+    def list_reserved_public_ips(self, compartment_id: str) -> list:
+        """Return list of dicts {public_ip, private_ip} for reserved public IPs."""
+        public_ips = oci.pagination.list_call_get_all_results(
+            self.vnet.list_public_ips,
+            "REGION",
+            compartment_id,
+            lifetime="RESERVED",
+        ).data
+        result = []
+        for public_ip in public_ips:
+            if public_ip.lifecycle_state == "TERMINATED":
+                continue
+            private_ip = None
+            if getattr(public_ip, "private_ip_id", None):
+                try:
+                    private_ip = self.vnet.get_private_ip(public_ip.private_ip_id).data
+                except Exception:
+                    pass
+            result.append({"public_ip": public_ip, "private_ip": private_ip})
+        return result
+
+    def create_reserved_public_ip(self, compartment_id: str, display_name: Optional[str] = None):
+        """Reserve a new public IP in the selected compartment."""
+        details = CreatePublicIpDetails(
+            compartment_id=compartment_id,
+            lifetime="RESERVED",
+            display_name=display_name or None,
+        )
+        return self.vnet.create_public_ip(details).data
+
+    def update_public_ip_name(self, public_ip_id: str, display_name: str):
+        """Update the display name for a reserved public IP."""
+        details = UpdatePublicIpDetails(display_name=display_name)
+        return self.vnet.update_public_ip(public_ip_id, details).data
+
+    def delete_public_ip(self, public_ip_id: str):
+        """Delete a public IP."""
+        return self.vnet.delete_public_ip(public_ip_id)
 
     def list_security_lists(self, compartment_id: str) -> list:
         return oci.pagination.list_call_get_all_results(
